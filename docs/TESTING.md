@@ -1,6 +1,6 @@
 # Pruebas — workshop-auth-backend
 
-Ejecutar: `mvn test` (JDK 21). Resultado actual: 19 pruebas en verde (`-Djacoco.skip=true` en local por incompatibilidad de JaCoCo 0.8.12 con JDK 25; CI usa JDK 21 y conserva JaCoCo).
+Ejecutar: `mvn test` (JDK 25). JaCoCo 0.8.15 soporta Java 25. CI ejecuta `mvn -B verify` con JDK 25.
 
 ## Matriz
 
@@ -45,4 +45,4 @@ Las pruebas verifican el contrato mínimo; no fijan el comportamiento defectuoso
 
 ## Cobertura
 
-No medida: JaCoCo 0.8.12 no instrumenta JDK 25 y el equipo solo tiene ese JDK. Por lectura del código, quedan sin cubrir los `catch` de `LegacyDatabase` (`:26-27` y `:41-43`) y la rama de excepción de `initialize`. Confirmar el 85% con el reporte de CI (JDK 21).
+Por lectura del código, quedan sin cubrir los `catch` de `LegacyDatabase` (`:26-27` y `:41-43`) y la rama de excepción de `initialize`. Confirmar el 85% con el reporte de CI (JDK 25).

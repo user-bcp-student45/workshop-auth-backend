@@ -1,42 +1,48 @@
 # PLAN — workshop-auth-backend
 
-Alcance: solo H-01. Contrato de `docs/ENDPOINTS.md` intacto (mismos status y cuerpos de `POST /auth/login`). Sin código modificado todavía.
+Alcance: solo H-03, marcado Pendiente en `HALLAZGOS.md`. No modificar código hasta escribir y ejecutar las pruebas de caracterización. Preservar el contrato de `POST /auth/login` de `docs/ENDPOINTS.md`: mismos estados, cuerpos y campos de respuesta, incluido `expiresIn=3600`. No cambiar el contrato del endpoint.
 
-## H-01 — Concatenación de credenciales en SQL
+**Aprobación humana:** aprobada por el usuario el 2026-10-19.
 
-**Fuente:** `HALLAZGOS.md`, H-01 (Vulnerabilidad, severidad alta, estado Pendiente).
+## H-03 — Token Base64 con secreto embebido
+
+**Fuente:** `HALLAZGOS.md`, H-03 (Vulnerabilidad, severidad alta, estado Pendiente).
 
 ### Problema
 
-`LegacyDatabase.findByCredentials` (`src/main/java/com/bcp/workshop/auth/LegacyDatabase.java:32`) concatena `username` y `password` en el SQL y lo ejecuta con `Statement`. Una entrada con comillas altera la consulta y permite saltar la autenticación. Viola la regla de GOOD_PRACTICES: "SQL: siempre `PreparedStatement` o parámetros nombrados".
+`LegacyTokenUtil.create` (`src/main/java/com/bcp/workshop/auth/LegacyTokenUtil.java`) codifica en Base64 `username|role|expiry|SECRET`. Base64 no aporta confidencialidad ni integridad: quien recibe el token puede leerlo y modificar sus valores, y el secreto está expuesto dentro del mismo token. El formato no contiene una firma verificable ni claims JWT estándar. Esto incumple `docs/GOOD_PRACTICES.md` (tokens firmados, con expiración y claims explícitos; no usar Base64 casero con secretos embebidos).
+
+El servicio emite el token, pero en este repositorio no existe un endpoint que lo valide. Los consumidores externos deberán verificar la firma y los claims antes de confiar en él; coordinar la compatibilidad con ellos sin modificar otros componentes.
 
 ### Cambio propuesto
 
-- Reemplazar `Statement` + concatenación por `PreparedStatement` con parámetros `?` para `username` y `password`.
-- La consulta pasa a una constante con nombre (`FIND_BY_CREDENTIALS_SQL`), sin valores incrustados.
-- Mantener la comparación de contraseña en SQL tal como está hoy; el hash es H-02 y queda fuera de este cambio.
-- Clean code (REGLAS.md 8-12):
-  - `findByCredentials` hace una sola cosa: ejecutar la consulta y delegar el mapeo a un método privado `toUserRecord(ResultSet)`.
-  - Guard clause: `if (!result.next()) return null;` en vez de anidar el mapeo.
-  - Sin duplicación ni números mágicos: índices de parámetros expresados por orden en una constante de SQL, nombres de columna reutilizados desde constantes si se repiten.
-- Sin dependencias nuevas (`PreparedStatement` es JDBC estándar).
-- Fuera de alcance (otros hallazgos): `printStackTrace` (H-05), separación Service/Repository y DTOs (H-07), hash (H-02). No se asume ninguna convención fuera de `docs/GOOD_PRACTICES.md`.
+- Sustituir la codificación Base64 propia por un JWT firmado con algoritmo asimétrico RS256, generado mediante `quarkus-smallrye-jwt-build` y sus APIs estándar. La dependencia está justificada para evitar implementar manualmente el formato JWT, la serialización de claims y las operaciones criptográficas; su versión debe quedar gestionada por el BOM Quarkus existente.
+- Incluir claims explícitos: `sub` con el username, el rol en el claim estándar `groups` (array con el rol), y `iat`/`exp`. La vigencia del token será de 3600 segundos. El `expiresIn` de la respuesta debe continuar siendo `3600` y concordar con `exp`.
+- Configurar la ubicación de la clave privada de firma en `application.properties` mediante una variable externa obligatoria, por ejemplo `smallrye.jwt.sign.key.location=${AUTH_TOKEN_SIGNING_KEY_LOCATION}`. No incluir claves ni valores predeterminados de producción en código o configuración versionada. Provisionar la clave privada fuera del repositorio; compartir con los validadores únicamente la clave pública.
+- Usar una clave de prueba aislada y no sensible para el perfil de tests, bajo `src/test/resources`; nunca reutilizarla en producción. No agregar configuración CORS ni abordar otros aspectos de H-04.
+- Mantener `LegacyTokenUtil` con una sola responsabilidad: emitir el token. Centralizar la duración como una constante con nombre y reutilizarla para la expiración y `expiresIn`, evitando valores mágicos duplicados. No cambiar la validación/login, el mapeo de usuario ni el formato de la respuesta.
+- Actualizar la nota de seguridad y el ejemplo de token en `docs/ENDPOINTS.md` para describir el JWT firmado, sin alterar los campos, estados o cuerpos definidos por el contrato. Tras completar la implementación y las pruebas, actualizar el estado de H-03 en `HALLAZGOS.md`.
 
-### Archivos a tocar
+### Archivos a tocar al implementar
 
-- `src/main/java/com/bcp/workshop/auth/LegacyDatabase.java` (método `findByCredentials`).
-- `src/test/java/com/bcp/workshop/auth/AuthResourceTest.java` (nuevas pruebas).
-- `HALLAZGOS.md` (actualizar estado de H-01 al terminar).
+- `pom.xml`: agregar la extensión `quarkus-smallrye-jwt-build`, gestionada por el BOM.
+- `src/main/resources/application.properties`: ubicación externa obligatoria de la clave privada; sin secretos.
+- `src/main/java/com/bcp/workshop/auth/LegacyTokenUtil.java`: emisión de JWT firmado, claims y duración centralizada.
+- `src/main/java/com/bcp/workshop/auth/AuthResource.java`: reutilizar la duración común para `expiresIn`, conservando exactamente el cuerpo actual.
+- `src/test/java/com/bcp/workshop/auth/AuthResourceTest.java`: caracterización del contrato y pruebas de firma/claims.
+- `src/test/resources/application.properties` y clave(s) de prueba: configuración y material criptográfico exclusivo del perfil de tests.
+- `docs/ENDPOINTS.md`: actualizar solo las notas de seguridad y el ejemplo del token; no cambiar el contrato.
+- `HALLAZGOS.md`: marcar H-03 como resuelto solo después de validar la implementación.
 
-### Prueba de caracterización (escribir y pasar en verde ANTES de tocar el código)
+### Pruebas de caracterización y validación
 
-En `AuthResourceTest`, contra el comportamiento actual, vía `POST /auth/login`:
+Escribir y ejecutar primero, antes de modificar código de producción, las pruebas de contrato vía `POST /auth/login`. Las pruebas de login existentes cubren parcialmente estos casos; conservarlas y completar las aserciones necesarias:
 
-1. Login válido `student`/`Workshop123!` → 200, `user.username=student`, `user.role=STUDENT`, `token` no nulo, `expiresIn=3600` (ya existe parcialmente: `logsInWithWorkshopUser`).
-2. Login válido `trainer`/`Trainer123!` → 200, `user.role=TRAINER`.
-3. Contraseña incorrecta → 401.
-4. Usuario inexistente → 401.
-5. Usuario o contraseña vacíos → 400.
-6. Entrada con comillas simples en `username` y `password` (por ejemplo un apóstrofe simple, sin payload de explotación) → 401 con el código corregido. Esta prueba documenta el comportamiento deseado: hoy puede devolver 401 o error según la entrada, por lo que se registra el resultado actual y se confirma que tras el cambio sea 401 estable y sin error 500.
+1. Credenciales válidas de `student` y `trainer` → `200`; comprobar `token` no vacío, `expiresIn=3600` y los valores existentes de `user.username`, `user.displayName` y `user.role`.
+2. Contraseña incorrecta y usuario inexistente → `401`, manteniendo el cuerpo y mensaje documentados.
+3. Request nulo o credenciales vacías/ausentes → `400`, manteniendo los mensajes documentados.
+4. Confirmar que el cuerpo de éxito conserva los mismos campos y que no se cambia ningún estado, mensaje ni campo de respuesta descrito en `docs/ENDPOINTS.md`.
 
-Criterio de cierre: pruebas 1-5 en verde antes y después del cambio sin editarlas; la 6 en verde después. Cobertura del código modificado ≥ 85% (REGLAS.md 7).
+Ejecutar esas pruebas contra el comportamiento actual para establecer la línea base. Antes de implementar la emisión JWT, añadir las pruebas de seguridad para que expresen el resultado esperado (inicialmente fallan por el token legado): tres segmentos JWT; firma RS256 verificable con la clave pública de prueba; claims `sub`, rol, `iat` y `exp`; diferencia `exp - iat` de 3600 segundos; y firma inválida al alterar el contenido del token. Verificar que `expiresIn` sigue concordando con el claim `exp`.
+
+Después de implementar, ejecutar `mvn -B verify`. Criterio de cierre: todas las pruebas pasan, la cobertura del código modificado es al menos 85% (REGLAS.md, regla 7), ningún secreto real está en el repositorio y el consumidor externo puede validar el algoritmo/claims con la clave pública sin acceso a la clave privada. El contrato de `docs/ENDPOINTS.md` permanece intacto.

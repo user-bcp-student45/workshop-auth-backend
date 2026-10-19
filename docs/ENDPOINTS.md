@@ -1,6 +1,6 @@
 # Contrato de endpoints — workshop-auth-backend
 
-Estado del documento: refleja el código **actual**. Solo H-01 (SQL parametrizado) está resuelto; el resto de hallazgos de `HALLAZGOS.md` siguen pendientes, por lo que varias notas de seguridad describen comportamiento aún débil. Cuando un hallazgo se resuelva, se actualiza la nota correspondiente sin cambiar el contrato.
+Estado del documento: refleja el código **actual**. H-01 (SQL parametrizado) y H-03 (token firmado) están resueltos; los demás hallazgos de `HALLAZGOS.md` siguen pendientes. Las notas de seguridad pueden cambiar al resolver hallazgos, sin cambiar el contrato.
 
 Base URL local: `http://localhost:8080` (`application.properties:1-2`). En perfil `prod` escucha en `0.0.0.0` (`application.properties:3`).
 
@@ -49,7 +49,7 @@ El orden de las claves del JSON no está garantizado.
 
 ```json
 {
-  "token": "c3R1ZGVudHxTVFVERU5UfDE3OTE4NDM2MDB8V09SS1NIT1BfU0VDUkVUXzIwMjY=",
+  "token": "<JWT RS256 firmado con claims sub, groups, iat y exp>",
   "expiresIn": 3600,
   "user": {
     "username": "student",
@@ -60,7 +60,7 @@ El orden de las claves del JSON no está garantizado.
 }
 ```
 
-El valor de `token` del ejemplo es el formato real producido por `LegacyTokenUtil.create` (`LegacyTokenUtil.java:13-15`) con una expiración de ejemplo.
+El valor de `token` es un marcador ilustrativo, no un JWT utilizable. La respuesta real contiene un JWT firmado en formato compacto de tres segmentos, emitido por `LegacyTokenUtil.create`.
 
 ### 5. Respuestas de error
 
@@ -80,9 +80,9 @@ Observaciones verificadas en el código:
 
 ### 6. Notas de seguridad
 
-- **El token NO está firmado ni es opaco.** Es Base64 de `username|role|expiry|SECRET` (`LegacyTokenUtil.java:13-15`); cualquiera puede decodificarlo, y el secreto viaja dentro (H-03, pendiente). No lo trate como credencial confiable.
-- **La expiración no se valida en este servicio:** no existe endpoint ni código que verifique el token; `expiresIn` y el epoch interno son solo informativos (`LegacyTokenUtil.java:13`).
-- El secreto del token está hardcodeado (`LegacyTokenUtil.java:8`, H-04, pendiente).
+- **El token está firmado con RS256** y contiene `sub` (username), `groups` (rol), `iat` y `exp` (vigencia de 3600 segundos). Los consumidores deben verificar la firma con la clave pública y validar los claims antes de confiar en él (H-03, resuelto).
+- **La expiración no se valida en este servicio:** no existe endpoint ni código que verifique el token; `exp` se emite y los clientes deben validarlo.
+- La ubicación de la clave privada de firma se obtiene de `AUTH_TOKEN_SIGNING_KEY_LOCATION`; la clave privada debe provisionarse fuera del repositorio. H-04 sigue pendiente por la configuración CORS permisiva.
 - Las contraseñas se almacenan y comparan en texto plano (`LegacyDatabase.java:17,23-24`, H-02, pendiente).
 - La consulta usa parámetros (`PreparedStatement`, `LegacyDatabase.java:34-37`), corregido en H-01.
 - CORS acepta cualquier origen, con métodos `GET,POST,PUT,DELETE,OPTIONS` y headers `accept,authorization,content-type,x-requested-with` (`application.properties:4-7`, H-04, pendiente).
