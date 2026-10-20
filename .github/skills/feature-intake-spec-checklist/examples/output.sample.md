@@ -1,25 +1,16 @@
-## Business context (brief)
-Reduce complaints caused by duplicate transfers.
+# Feature Intake -> Spec Checklist
 
-## Feature request / user story
-As a user, I want to confirm a transfer before sending it
-so that I can avoid duplicates.
+## 1. Summary
+Add a pre-send transfer confirmation with a concise summary
+and validation of transfer data. Target: 20% reduction in
+duplicate-transfer complaints in one month.
 
-## Expected impact
-Reduce duplicate-transfer complaints by 20% in one month.
+## 6. Acceptance criteria (measurable)
+- 95%+ of valid attempts show confirmation before submission.
+- Invalid data blocks submission with a validation message.
+- Duplicate complaints drop 20% within one month.
+- No sensitive values appear in confirmation event logs.
 
-## Scope (in/out)
-In: pre-send confirmation, summary message, data validation.
-Out: infrastructure changes and a complete UI redesign.
-
-## Known technical constraints
-Existing REST API, web frontend, standardized logging.
-
-## Known risks
-Sensitive data exposure in logs; amount-validation errors.
-
-## Dependencies
-Accounts service and transfers service.
-
-## Team Definition of Done (DoD)
-Unit tests, brief documentation, and reviewed PR.
+## 9. Open questions
+- What baseline measures the 20% reduction?
+- Which API version owns the confirmation contract?
