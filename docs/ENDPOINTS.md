@@ -1,8 +1,6 @@
 # Contrato de endpoints — workshop-auth-backend
 
-Estado del documento: refleja el código **actual**. H-01 (SQL parametrizado) y H-03 (token firmado) están resueltos; los demás hallazgos de `HALLAZGOS.md` siguen pendientes. Las notas de seguridad pueden cambiar al resolver hallazgos, sin cambiar el contrato.
-
-Base URL local: `http://localhost:8080` (`application.properties:1-2`). En perfil `prod` escucha en `0.0.0.0` (`application.properties:3`).
+Base URL de desarrollo: `http://127.0.0.1:8080` (`src/main/resources/application.properties`). En perfil `prod`, el servidor escucha en `0.0.0.0`; el consumidor debe usar el host publicado por su despliegue.
 
 ---
 
@@ -10,21 +8,21 @@ Base URL local: `http://localhost:8080` (`application.properties:1-2`). En perfi
 
 ### 1. Qué hace
 
-Verifica las credenciales de un usuario del taller y, si son correctas, entrega un token de sesión junto con los datos básicos del usuario para que el cliente (Angular / API Python) lo use.
+Autentica a un usuario del taller y, si las credenciales coinciden con un usuario almacenado, devuelve sus datos básicos y un token de sesión firmado para que los clientes puedan identificarlo.
 
 ### 2. Autenticación
 
-No requiere autenticación ni header de autorización: es el endpoint que la emite. Solo exige `Content-Type: application/json` (`AuthResource.java:16`).
+No requiere autenticación previa ni header `Authorization`; este endpoint emite el token. Requiere `Content-Type: application/json` (`AuthResource.java:15-17`). Produce `application/json`.
 
 ### 3. Request
 
 | campo | tipo | obligatorio | descripción |
 |---|---|---|---|
-| `username` | string | sí | Nombre de usuario. No puede ser nulo ni vacío/solo espacios (`AuthResource.java:29`). |
-| `password` | string | sí | Contraseña. No puede ser nula ni vacía/solo espacios (`AuthResource.java:32`). |
-| `client` | string | no | Se acepta (`LoginRequest.java:5`) pero el servidor no lo usa. |
+| `username` | string | sí | Nombre de usuario. Nulo, vacío o compuesto solo por espacios se rechaza. |
+| `password` | string | sí | Contraseña. Nula, vacía o compuesta solo por espacios se rechaza. |
+| `client` | string | no | Campo aceptado por el DTO; el backend no lo utiliza. |
 
-Campos desconocidos se ignoran (`application.properties:8`, `fail-on-unknown-properties=false`).
+Los campos desconocidos del objeto JSON se ignoran (`application.properties`, `quarkus.jackson.fail-on-unknown-properties=false`).
 
 ```json
 {
@@ -34,22 +32,23 @@ Campos desconocidos se ignoran (`application.properties:8`, `fail-on-unknown-pro
 }
 ```
 
-### 4. Respuesta exitosa — `200 OK`
+### 4. Response exitosa — `200 OK`
 
 | campo | tipo | descripción |
 |---|---|---|
-| `token` | string | Token de sesión (ver notas de seguridad). |
-| `expiresIn` | number (entero) | Vigencia declarada en segundos; siempre `3600` (`AuthResource.java:42`). |
-| `user.username` | string | Nombre de usuario almacenado. |
-| `user.displayName` | string | Nombre para mostrar, con escape HTML aplicado (`AuthResource.java:45`). |
-| `user.role` | string | Rol del usuario. Valores sembrados: `STUDENT`, `TRAINER` (`LegacyDatabase.java:23-24`). |
-| `debug` | string | Valor fijo `authenticated-with-legacy-flow` (`AuthResource.java:48`). No es parte funcional; los clientes no deben depender de él. |
+| `token` | string | JWT compacto firmado con RS256. Incluye `sub`, `groups`, `iat` y `exp`; la duración configurada es de 3600 segundos. |
+| `expiresIn` | integer | Duración del token en segundos: `3600`. |
+| `user` | object | Datos básicos del usuario autenticado. |
+| `user.username` | string | Nombre del usuario almacenado. |
+| `user.displayName` | string | Nombre para mostrar; se aplica escape HTML. |
+| `user.role` | string | Rol almacenado. Los usuarios semilla usan `STUDENT` o `TRAINER`. |
+| `debug` | string | Valor actual fijo `authenticated-with-legacy-flow`. |
 
-El orden de las claves del JSON no está garantizado.
+Ejemplo completo de la forma de respuesta para el usuario semilla `student` (`AuthResource.java:39-49`, `LegacyDatabase.java:26`):
 
 ```json
 {
-  "token": "<JWT RS256 firmado con claims sub, groups, iat y exp>",
+  "token": "<JWT RS256 generado por el servidor para esta respuesta>",
   "expiresIn": 3600,
   "user": {
     "username": "student",
@@ -60,34 +59,30 @@ El orden de las claves del JSON no está garantizado.
 }
 ```
 
-El valor de `token` es un marcador ilustrativo, no un JWT utilizable. La respuesta real contiene un JWT firmado en formato compacto de tres segmentos, emitido por `LegacyTokenUtil.create`.
+El valor de `token` es dinámico y debe tratarse como credencial; no se publica un token utilizable en este ejemplo. El orden de las claves JSON no está garantizado.
 
 ### 5. Respuestas de error
 
-Todas son JSON con `message` salvo indicación.
-
 | estado | cuándo ocurre | ejemplo de cuerpo |
 |---|---|---|
-| `400` | El cuerpo deserializa a `null` (`AuthResource.java:26-27`). | `{"message":"Request is null"}` |
-| `400` | `username` nulo, vacío o solo espacios (`AuthResource.java:29-30`). | `{"message":"Username is required"}` |
-| `400` | `password` nula, vacía o solo espacios (`AuthResource.java:32-33`). | `{"message":"Password is required"}` |
-| `401` | No existe un usuario con ese par usuario/contraseña (`AuthResource.java:36-37`). El mensaje incluye el usuario enviado. | `{"message":"Invalid user nobody or password"}` |
-| `500` | Excepción no controlada en el Resource (`AuthResource.java:54-58`). Incluye `exception` con el nombre de clase interno. | `{"message":"Unknown error","exception":"java.lang.NullPointerException"}` |
+| `400 Bad Request` | El cuerpo es `null` o está vacío. | `{"message":"Request is null"}` |
+| `400 Bad Request` | `username` falta, es nulo, vacío o solo contiene espacios. | `{"message":"Username is required"}` |
+| `400 Bad Request` | `password` falta, es nula, vacía o solo contiene espacios. | `{"message":"Password is required"}` |
+| `400 Bad Request` | El JSON está malformado. Quarkus lo rechaza antes de invocar el método; en la verificación local la respuesta no tenía cuerpo. | *(cuerpo vacío)* |
+| `401 Unauthorized` | No se encuentra un usuario con el par recibido. Un fallo de consulta a la base de datos también se convierte en `null` y llega a esta respuesta. El mensaje incluye el username recibido. | `{"message":"Invalid user nobody or password"}` |
+| `415 Unsupported Media Type` | El request no usa un tipo de contenido aceptado (`application/json`). En la verificación local la respuesta no tenía cuerpo. | *(cuerpo vacío)* |
+| `500 Internal Server Error` | Ocurre una excepción no controlada dentro de `AuthResource.login`, por ejemplo al construir una respuesta con datos inconsistentes o al fallar la firma del token. El contenido de `message` y `exception` depende de la excepción. | `{"message":"<mensaje de la excepción o Unknown error>","exception":"<nombre de la clase de excepción>"}` |
 
-Observaciones verificadas en el código:
-- Un fallo de acceso a la base de datos **no** produce 500: `LegacyDatabase.findByCredentials` captura la excepción y devuelve `null` (`LegacyDatabase.java:41-43`), que el cliente ve como `401`.
-- El texto de `message` en 500 es el de la excepción (`getMessage()`) o `"Unknown error"` si es nulo; el ejemplo es ilustrativo del formato, no un caso reproducible concreto.
+Las respuestas `400` por campos inválidos son construidas por `AuthResource.java:26-33`; el `401`, por `AuthResource.java:35-37`; y el `500`, por `AuthResource.java:53-58`. El JSON malformado y `415` son generados por Quarkus antes de la ejecución del recurso; sus cuerpos vacíos se observaron en una ejecución local.
 
 ### 6. Notas de seguridad
 
-- **El token está firmado con RS256** y contiene `sub` (username), `groups` (rol), `iat` y `exp` (vigencia de 3600 segundos). Los consumidores deben verificar la firma con la clave pública y validar los claims antes de confiar en él (H-03, resuelto).
-- **La expiración no se valida en este servicio:** no existe endpoint ni código que verifique el token; `exp` se emite y los clientes deben validarlo.
-- La ubicación de la clave privada de firma se obtiene de `AUTH_TOKEN_SIGNING_KEY_LOCATION`; la clave privada debe provisionarse fuera del repositorio. H-04 sigue pendiente por la configuración CORS permisiva.
-- Las contraseñas se almacenan y comparan en texto plano (`LegacyDatabase.java:17,23-24`, H-02, pendiente).
-- La consulta usa parámetros (`PreparedStatement`, `LegacyDatabase.java:34-37`), corregido en H-01.
-- CORS acepta cualquier origen, con métodos `GET,POST,PUT,DELETE,OPTIONS` y headers `accept,authorization,content-type,x-requested-with` (`application.properties:4-7`, H-04, pendiente).
-- No hay límite de intentos ni bloqueo de cuenta en el código revisado.
-- Laboratorio intencionalmente vulnerable (`README.md`): no exponer a Internet.
+- El token se firma con RS256 y expone los claims `sub` (username), `groups` (rol), `iat` y `exp`. La clave privada se localiza mediante `AUTH_TOKEN_SIGNING_KEY_LOCATION` (`application.properties:9`); debe provisionarse fuera del repositorio. Los consumidores deben validar firma, claims y expiración con la clave pública.
+- Este backend emite tokens, pero no contiene un endpoint que los verifique ni aplique autorización a rutas.
+- Las contraseñas de los usuarios semilla se almacenan y comparan en texto plano (`LegacyDatabase.java:26-27, 35-38`); no usar estas credenciales fuera del laboratorio.
+- El mensaje de `401` refleja el username enviado, y el `500` puede devolver el mensaje y la clase de la excepción (`AuthResource.java:37, 53-58`).
+- La consulta de credenciales usa `PreparedStatement` con parámetros (`LegacyDatabase.java:18, 35-38`).
+- CORS permite cualquier origen (`application.properties:4-7`). El servicio está marcado como laboratorio intencionalmente vulnerable en `README.md`; no exponerlo a Internet.
 
 ---
 
@@ -95,33 +90,31 @@ Observaciones verificadas en el código:
 
 ### 1. Qué hace
 
-Indica si el servicio está arriba y listo para recibir tráfico; sirve para monitoreo y para que orquestadores o balanceadores decidan si enviarle solicitudes.
+Indica si el servicio está disponible para recibir tráfico, para que un monitor o balanceador pueda decidir si mantenerlo en servicio.
 
 ### 2. Autenticación
 
-No requiere autenticación ni headers. No hay configuración de seguridad en `application.properties`.
+No requiere autenticación ni header `Authorization`. La ruta la provee `quarkus-smallrye-health` (`pom.xml`, dependencia `quarkus-smallrye-health`).
 
 ### 3. Request
 
-Sin cuerpo, sin parámetros de ruta ni de consulta.
-
 | campo | tipo | obligatorio | descripción |
 |---|---|---|---|
-| — | — | — | No aplica. |
+| — | — | no | No recibe campos, parámetros ni cuerpo JSON. |
 
 ```http
 GET /q/health HTTP/1.1
-Host: localhost:8080
+Host: 127.0.0.1:8080
 ```
 
-### 4. Respuesta exitosa — `200 OK`
-
-El endpoint lo provee la extensión `quarkus-smallrye-health` (`pom.xml`), no código propio; el proyecto no define health checks personalizados (no hay clases `HealthCheck` en `src/main`). El formato siguiente es el estándar de MicroProfile Health y **no se pudo ejecutar para confirmarlo** en esta revisión (ver preguntas abiertas).
+### 4. Response exitosa — `200 OK`
 
 | campo | tipo | descripción |
 |---|---|---|
-| `status` | string | `UP` si todos los checks pasan. |
-| `checks` | array | Detalle de checks; sin checks personalizados se espera vacío. |
+| `status` | string | Estado global de salud; la respuesta actual es `UP`. |
+| `checks` | array | Checks de salud incluidos en la respuesta; actualmente vacío porque el repositorio no define checks propios. |
+
+Respuesta observada localmente y verificada por `HealthEndpointTest.java:15-27`:
 
 ```json
 {
@@ -134,18 +127,29 @@ El endpoint lo provee la extensión `quarkus-smallrye-health` (`pom.xml`), no c�
 
 | estado | cuándo ocurre | ejemplo de cuerpo |
 |---|---|---|
-| `503` | Algún check reporta `DOWN` (comportamiento estándar de SmallRye Health). Con los checks por defecto no se espera. | `{"status":"DOWN","checks":[]}` (no verificado) |
+| — | El código de este repositorio no define respuestas de error para `/q/health`; la prueba y la verificación local obtuvieron `200 OK` con `checks` vacío. No se encontró un check propio que pueda producir un estado `DOWN`. | No aplica: no hay un cuerpo de error definido por el proyecto. |
 
 ### 6. Notas de seguridad
 
-- Es público y sin autenticación. No devuelve datos de usuarios.
-- El CORS abierto (`application.properties:4-7`) también aplica a este endpoint.
+- Es una ruta pública y no devuelve datos de usuarios.
+- La configuración CORS actual también permite cualquier origen (`application.properties:4-7`).
+- La respuesta `UP` solo informa la salud que reporta SmallRye Health; no comprueba la autenticación ni que un token emitido sea válido.
 
 ---
 
 ## Preguntas abiertas
 
-1. Cuerpo exacto de `/q/health` y de sus errores: no se ejecutó la aplicación (el modo dev de Maven no arrancó en este módulo). Confirmar con una llamada real.
-2. Respuesta ante JSON malformado o `Content-Type` distinto de `application/json`: la generan el framework (Quarkus REST), no el código del proyecto; estados y cuerpo no verificados.
-3. Si el cuerpo deserializa a `null` ocurre realmente con cuerpo vacío o `null` literal (`AuthResource.java:26`); comportamiento de Quarkus REST para cuerpo vacío no verificado.
-4. Qué endpoint o servicio validará el token emitido: no existe en este repositorio.
+1. El comportamiento de negociación cuando el cliente envía un header `Accept` incompatible con `application/json` no quedó confirmado; se omite un código/cuerpo hasta verificarlo.
+2. No hay checks personalizados de salud en este repositorio, por lo que no se pudo verificar si una condición `DOWN` llegaría a producir `503` ni cuál sería su cuerpo en este servicio.
+3. El cuerpo de `500` varía según la excepción; el código determina sus campos, pero no existe una respuesta única que represente todos los fallos.
+4. La validación del JWT emitido corresponde a consumidores externos; no hay endpoint de validación en este backend.
+
+## Documentos consultados
+
+- `docs/GOOD_PRACTICES.md`
+- `REGLAS.md`
+- `docs/TESTING.md`
+- `README.md`
+- `RETO.md`
+- `HALLAZGOS.md`
+- `docs/ENDPOINTS.md` (versión previa del contrato)

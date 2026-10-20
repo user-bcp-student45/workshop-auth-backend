@@ -1,6 +1,7 @@
 package com.bcp.workshop.auth;
 
 import io.quarkus.test.junit.QuarkusTest;
+import io.restassured.response.Response;
 import io.restassured.response.ValidatableResponse;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -46,7 +47,7 @@ class AuthResourceTest {
                 .body("expiresIn", is(3600))
                 .body("token", notNullValue())
                 .body("token", not(emptyString()))
-                .body("$", hasKey("debug"));
+                .body("debug", is("authenticated-with-legacy-flow"));
     }
 
     @Test
@@ -142,6 +143,48 @@ class AuthResourceTest {
         given().contentType("application/json").body("null")
                 .when().post(LOGIN_PATH).then()
                 .statusCode(400).body("message", is("Request is null"));
+    }
+
+    @Test
+    void rejectsMissingBody() {
+        given().contentType("application/json")
+                .when().post(LOGIN_PATH).then()
+                .statusCode(400).body("message", is("Request is null"));
+    }
+
+    @Test
+    void rejectsNullUsernameAndPassword() {
+        given().contentType("application/json")
+                .body("{\"username\":null,\"password\":\"Workshop123!\"}")
+                .when().post(LOGIN_PATH).then()
+                .statusCode(400).body("message", is("Username is required"));
+
+        given().contentType("application/json")
+                .body("{\"username\":\"student\",\"password\":null}")
+                .when().post(LOGIN_PATH).then()
+                .statusCode(400).body("message", is("Password is required"));
+    }
+
+    @Test
+    void rejectsMalformedJsonWithEmptyBadRequestBody() {
+        Response response = given().contentType("application/json")
+                .body("{")
+                .when().post(LOGIN_PATH)
+                .then().extract().response();
+
+        assertEquals(400, response.statusCode());
+        assertEquals("", response.getBody().asString());
+    }
+
+    @Test
+    void rejectsUnsupportedContentTypeWithEmptyResponseBody() {
+        Response response = given().contentType("text/plain")
+                .body("not-json")
+                .when().post(LOGIN_PATH)
+                .then().extract().response();
+
+        assertEquals(415, response.statusCode());
+        assertEquals("", response.getBody().asString());
     }
 
     @Test
