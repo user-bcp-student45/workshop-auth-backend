@@ -37,7 +37,7 @@ class AuthResourceServerErrorTest {
     void returns500WithMessageOnUnexpectedFailure() {
         FaultyDatabase.returnUserWithoutDisplayName = true;
         given().contentType("application/json")
-                .body("{\"username\":\"student\",\"password\":\"Workshop123!\"}")
+            .body("{\"username\":\"student\",\"password\":\"Workshop123!\",\"client\":\"angular-workshop\"}")
                 .when().post("/auth/login").then()
                 .statusCode(500)
                 .body("message", notNullValue());

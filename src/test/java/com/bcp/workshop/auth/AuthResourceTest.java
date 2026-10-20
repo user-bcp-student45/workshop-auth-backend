@@ -97,17 +97,27 @@ class AuthResourceTest {
     }
 
     @Test
-    void acceptsRequestWithoutOptionalClientField() {
+    void rejectsRequestWithoutClientField() {
         given().contentType("application/json")
                 .body("{\"username\":\"student\",\"password\":\"Workshop123!\"}")
                 .when().post(LOGIN_PATH).then()
-                .statusCode(200);
+                .statusCode(400)
+                .body("message", is("Client is required"));
+    }
+
+    @Test
+    void rejectsUnsupportedClient() {
+        given().contentType("application/json")
+                .body("{\"username\":\"student\",\"password\":\"Workshop123!\",\"client\":\"other-client\"}")
+                .when().post(LOGIN_PATH).then()
+                .statusCode(400)
+                .body("message", is("Unsupported client"));
     }
 
     @Test
     void ignoresUnknownFields() {
         given().contentType("application/json")
-                .body("{\"username\":\"student\",\"password\":\"Workshop123!\",\"extra\":\"x\"}")
+                .body("{\"username\":\"student\",\"password\":\"Workshop123!\",\"client\":\"angular-workshop\",\"extra\":\"x\"}")
                 .when().post(LOGIN_PATH).then()
                 .statusCode(200);
     }
@@ -211,6 +221,7 @@ class AuthResourceTest {
         JsonNode claims = mapper.readTree(Base64.getUrlDecoder().decode(segments[1]));
         assertEquals("RS256", header.path("alg").asText());
         assertEquals("student", claims.path("sub").asText());
+        assertEquals("angular-workshop", claims.path("client").asText());
         assertEquals("STUDENT", claims.path("groups").get(0).asText());
 
         long issuedAt = claims.path("iat").asLong();

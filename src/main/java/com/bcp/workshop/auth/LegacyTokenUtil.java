@@ -11,12 +11,13 @@ public final class LegacyTokenUtil {
 
     private LegacyTokenUtil() {}
 
-    public static String create(String username, String role) {
+    public static String create(String username, String role, String client) {
         Instant issuedAt = Instant.now().truncatedTo(ChronoUnit.SECONDS);
         Instant expiresAt = issuedAt.plusSeconds(TOKEN_LIFETIME_SECONDS);
 
         return Jwt.claims()
                 .subject(username)
+                .claim("client", client)
                 .claim("groups", List.of(role))
                 .issuedAt(issuedAt)
                 .expiresAt(expiresAt)

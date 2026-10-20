@@ -20,7 +20,7 @@ No requiere autenticación previa ni header `Authorization`; este endpoint emite
 |---|---|---|---|
 | `username` | string | sí | Nombre de usuario. Nulo, vacío o compuesto solo por espacios se rechaza. |
 | `password` | string | sí | Contraseña. Nula, vacía o compuesta solo por espacios se rechaza. |
-| `client` | string | no | Campo aceptado por el DTO; el backend no lo utiliza. |
+| `client` | string | sí | Identificador del cliente; el único valor permitido es `angular-workshop`. |
 
 Los campos desconocidos del objeto JSON se ignoran (`application.properties`, `quarkus.jackson.fail-on-unknown-properties=false`).
 
@@ -36,7 +36,7 @@ Los campos desconocidos del objeto JSON se ignoran (`application.properties`, `q
 
 | campo | tipo | descripción |
 |---|---|---|
-| `token` | string | JWT compacto firmado con RS256. Incluye `sub`, `groups`, `iat` y `exp`; la duración configurada es de 3600 segundos. |
+| `token` | string | JWT compacto firmado con RS256. Incluye `sub`, `client`, `groups`, `iat` y `exp`; la duración configurada es de 3600 segundos. |
 | `expiresIn` | integer | Duración del token en segundos: `3600`. |
 | `user` | object | Datos básicos del usuario autenticado. |
 | `user.username` | string | Nombre del usuario almacenado. |
@@ -68,6 +68,7 @@ El valor de `token` es dinámico y debe tratarse como credencial; no se publica 
 | `400 Bad Request` | El cuerpo es `null` o está vacío. | `{"message":"Request is null"}` |
 | `400 Bad Request` | `username` falta, es nulo, vacío o solo contiene espacios. | `{"message":"Username is required"}` |
 | `400 Bad Request` | `password` falta, es nula, vacía o solo contiene espacios. | `{"message":"Password is required"}` |
+| `400 Bad Request` | `client` falta, es nulo, vacío, contiene solo espacios o no es `angular-workshop`. | `{"message":"Client is required"}` o `{"message":"Unsupported client"}` |
 | `400 Bad Request` | El JSON está malformado. Quarkus lo rechaza antes de invocar el método; en la verificación local la respuesta no tenía cuerpo. | *(cuerpo vacío)* |
 | `401 Unauthorized` | No se encuentra un usuario con el par recibido. Un fallo de consulta a la base de datos también se convierte en `null` y llega a esta respuesta. El mensaje incluye el username recibido. | `{"message":"Invalid user nobody or password"}` |
 | `415 Unsupported Media Type` | El request no usa un tipo de contenido aceptado (`application/json`). En la verificación local la respuesta no tenía cuerpo. | *(cuerpo vacío)* |
@@ -77,7 +78,7 @@ Las respuestas `400` por campos inválidos son construidas por `AuthResource.jav
 
 ### 6. Notas de seguridad
 
-- El token se firma con RS256 y expone los claims `sub` (username), `groups` (rol), `iat` y `exp`. La clave privada se localiza mediante `AUTH_TOKEN_SIGNING_KEY_LOCATION` (`application.properties:9`); debe provisionarse fuera del repositorio. Los consumidores deben validar firma, claims y expiración con la clave pública.
+- El token se firma con RS256 y expone los claims `sub` (username), `client` (`angular-workshop`), `groups` (rol), `iat` y `exp`. La clave privada se localiza mediante `AUTH_TOKEN_SIGNING_KEY_LOCATION` (`application.properties:9`); debe provisionarse fuera del repositorio. Los consumidores deben validar firma, claims y expiración con la clave pública.
 - Este backend emite tokens, pero no contiene un endpoint que los verifique ni aplique autorización a rutas.
 - Las contraseñas de los usuarios semilla se almacenan y comparan en texto plano (`LegacyDatabase.java:26-27, 35-38`); no usar estas credenciales fuera del laboratorio.
 - El mensaje de `401` refleja el username enviado, y el `500` puede devolver el mensaje y la clase de la excepción (`AuthResource.java:37, 53-58`).
