@@ -8,6 +8,12 @@ import io.quarkus.test.junit.TestProfile;
 import io.restassured.response.Response;
 import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.security.KeyFactory;
+import java.security.PublicKey;
+import java.security.Signature;
+import java.security.spec.X509EncodedKeySpec;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -40,6 +46,15 @@ class AuthResourceTest {
                 .statusCode(200)
                 .body("user.username", is("student"))
                 .body("token", notNullValue());
+    }
+
+    @Test
+    void healthEndpointRemainsUnauthenticated() {
+        given()
+                .when().get("/q/health")
+                .then()
+                .statusCode(200)
+                .body("status", is("UP"));
     }
 
     @Test
@@ -216,7 +231,22 @@ class AuthResourceTest {
 
         String token = response.path("token");
         long expiresIn = ((Number) response.path("expiresIn")).longValue();
-        JsonNode claims = mapper.readTree(Base64.getUrlDecoder().decode(token.split("\\.")[1]));
+        String[] tokenParts = token.split("\\.");
+        JsonNode header = mapper.readTree(Base64.getUrlDecoder().decode(tokenParts[0]));
+        JsonNode claims = mapper.readTree(Base64.getUrlDecoder().decode(tokenParts[1]));
+
+        assertEquals("RS256", header.get("alg").asText());
+        String publicKeyPem = Files.readString(JwtTestProfile.PUBLIC_KEY)
+            .replace("-----BEGIN PUBLIC KEY-----", "")
+            .replace("-----END PUBLIC KEY-----", "")
+            .replaceAll("\\s", "");
+        byte[] publicKeyBytes = Base64.getDecoder().decode(publicKeyPem);
+        PublicKey publicKey = KeyFactory.getInstance("RSA")
+            .generatePublic(new X509EncodedKeySpec(publicKeyBytes));
+        Signature verifier = Signature.getInstance("SHA256withRSA");
+        verifier.initVerify(publicKey);
+        verifier.update((tokenParts[0] + "." + tokenParts[1]).getBytes(StandardCharsets.US_ASCII));
+        assertTrue(verifier.verify(Base64.getUrlDecoder().decode(tokenParts[2])));
 
         assertEquals("student", claims.get("sub").asText());
         assertEquals("angular-workshop", claims.get("client").asText());
