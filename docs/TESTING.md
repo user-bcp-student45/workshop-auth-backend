@@ -4,8 +4,12 @@
 
 | endpoint | caso | tipo | resultado esperado |
 |---|---|---|---|
-| POST /auth/login | Credenciales validas (student/Workshop123!) | Camino feliz | 200, token no nulo, user.username=student |
-| POST /auth/login | Login sin campo opcional client | Caso borde | 200, mismo contrato de respuesta que camino feliz |
+| POST /auth/login | Credenciales validas (student/Workshop123!) con client=angular-workshop | Camino feliz | 200, token JWT RS256 no nulo, expiresIn=3600, user.username=student |
+| POST /auth/login | client ausente | Error documentado (400) | 400, body.message="Client is required" |
+| POST /auth/login | client null o en blanco | Caso borde | 400, body.message="Client is required" |
+| POST /auth/login | client distinto de angular-workshop | Error documentado (400) | 400, body.message="Client is not allowed" |
+| POST /auth/login | client no textual (numero, booleano, objeto, arreglo) | Caso borde | 400, body.message="Client is not allowed" |
+| POST /auth/login | client invalido con password incorrecta | Caso borde | 400 (client se valida antes de buscar credenciales) |
 | POST /auth/login | Request null | Error documentado (400) | 400, body.message="Request is null" |
 | POST /auth/login | username ausente | Error documentado (400) | 400, body.message="Username is required" |
 | POST /auth/login | username en blanco | Caso borde | 400, body.message="Username is required" |
@@ -29,15 +33,8 @@
 
 ```java
 @Test
-void logsInWithoutOptionalClientField() {
-    given()
-            .contentType("application/json")
-            .body("{\"username\":\"student\",\"password\":\"Workshop123!\"}")
-            .when().post("/auth/login")
-            .then()
-            .statusCode(200)
-            .body("user.username", is("student"))
-            .body("token", notNullValue());
+void rejectsMissingClient() {
+    assertLoginRejected("{\"username\":\"student\",\"password\":\"Workshop123!\"}", "Client is required");
 }
 
 @Test
@@ -154,30 +151,24 @@ public class TestHealthToggle implements HealthCheck {
 
 ### Comando de validacion principal
 
-- Directorio: C:/Users/Usuario/Documents/T60146-jonatan-moreno-leyva/reqflow-workspace/workshop-auth-backend
-- Comando: .tools/maven/bin/mvn.cmd verify
+- Directorio: workshop-auth-backend
+- Comando: mvn -B test "-Djacoco.skip=true"
 - Codigo de salida: 0
 
 ### Resultados de tests (surefire)
 
-- Tests run: 18
+- Tests run: 20
 - Failures: 0
 - Errors: 0
 - Skipped: 0
 
 ### Cobertura (JaCoCo)
 
-- Metodo de medicion: reporte XML generado por jacoco-maven-plugin en target/site/jacoco/jacoco.xml, agregando contadores de instruction y branch.
-- Cobertura global (instruction): 94.66% (372/393)
-- Cobertura global (branch): 79.41% (27/34)
-- Cobertura paquete com.bcp.workshop.auth (instruction): 94.66% (372/393)
-- Cobertura paquete com.bcp.workshop.auth (branch): 79.41% (27/34)
-
-Validacion de criterio REGLAS.md (>=85% en codigo modificado): Cumplido por instruction coverage (94.66%).
+- No medida en esta ejecucion: JaCoCo 0.8.12 es incompatible con JDK 25 local, por lo que se uso -Djacoco.skip=true. Las cifras de ejecuciones anteriores no aplican al estado actual.
 
 ## Fallos
 
-- Ningun test en rojo en la ejecucion de verify.
+- Ningun test en rojo en la ejecucion de mvn test. Durante el cierre aparecen avisos IllegalAccessError de vert.x (thread-local reset en Java 24+); no provocan fallos.
 
 ## Pendientes
 

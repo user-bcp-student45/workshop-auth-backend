@@ -16,8 +16,13 @@ import java.util.Map;
 @Consumes(MediaType.APPLICATION_JSON)
 @Produces(MediaType.APPLICATION_JSON)
 public class AuthResource {
+    static final String ALLOWED_CLIENT = "angular-workshop";
+
     @Inject
     LegacyDatabase database;
+
+    @Inject
+    JwtTokenIssuer tokenIssuer;
 
     @POST
     @Path("/login")
@@ -32,14 +37,18 @@ public class AuthResource {
                     if (request.password == null || request.password.trim().isEmpty()) {
                         return Response.status(400).entity(Map.of("message", "Password is required")).build();
                     } else {
+                        String clientError = validateClient(request.client);
+                        if (clientError != null) {
+                            return Response.status(400).entity(Map.of("message", clientError)).build();
+                        }
                         UserRecord user = database.findByCredentials(request.username, request.password);
                         if (user == null) {
                             return Response.status(401).entity(Map.of("message", "Invalid user " + request.username + " or password")).build();
                         } else {
-                            String token = LegacyTokenUtil.create(user.username(), user.role());
+                            JwtTokenIssuer.IssuedToken issued = tokenIssuer.issue(user.username(), user.role(), ALLOWED_CLIENT);
                             Map<String, Object> response = new HashMap<>();
-                            response.put("token", token);
-                            response.put("expiresIn", 3600);
+                            response.put("token", issued.token());
+                            response.put("expiresIn", issued.expiresIn());
                             response.put("user", Map.of(
                                     "username", user.username(),
                                     "displayName", StringEscapeUtils.escapeHtml4(user.displayName()),
@@ -57,5 +66,15 @@ public class AuthResource {
                     "exception", error.getClass().getName()
             )).build();
         }
+    }
+
+    private static String validateClient(Object client) {
+        if (client == null || (client instanceof String text && text.trim().isEmpty())) {
+            return "Client is required";
+        }
+        if (!ALLOWED_CLIENT.equals(client)) {
+            return "Client is not allowed";
+        }
+        return null;
     }
 }
