@@ -2,8 +2,8 @@
 
 ## 1. Caracterización del contrato actual
 
-- [ ] 1.1 Ampliar las pruebas HTTP de `POST /auth/login` para fijar el baseline antes de cambiar el comportamiento: respuesta exitosa y campos `user`/`debug`, username visible escapado en HTML, errores 400 de solicitud/credenciales requeridas y error 401 por credenciales inválidas; verificar con `mvn test`.
-- [ ] 1.2 Caracterizar que hoy el login exitoso acepta `client` ausente y que `GET /q/health` sigue accesible sin autenticación; ejecutar las pruebas de caracterización y registrar estos resultados como comportamiento previo que no debe confundirse con el contrato posterior.
+- [x] 1.1 Caracterizar el contrato observable actual de `POST /auth/login`: respuesta exitosa y campos `user`/`debug`, `user.displayName` escapado en HTML, errores 400 de solicitud/credenciales requeridas (ausentes, nulas o en blanco) y error 401 por credenciales inválidas; ejecutar y registrar las pruebas HTTP focalizadas.
+- [x] 1.2 Caracterizar el comportamiento observable en esta rama: el login rechaza `client` ausente con `400 Bad Request` y `GET /q/health` sigue accesible sin autenticación; no registrar la ausencia de `client` como un baseline aceptado. Ejecutar las pruebas HTTP existentes y registrar sus resultados.
 
 ## 2. Validación del cliente
 

@@ -2,6 +2,7 @@ package com.bcp.workshop.auth;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.quarkus.test.junit.QuarkusMock;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.junit.TestProfile;
 import io.restassured.response.Response;
@@ -58,6 +59,24 @@ class AuthResourceTest {
     }
 
     @Test
+    void escapesDisplayNameInSuccessfulHttpResponse() {
+        QuarkusMock.installMockForType(new LegacyDatabase() {
+            @Override
+            public UserRecord findByCredentials(String username, String password) {
+                return new UserRecord(1L, username, "<student & trainer>", "STUDENT");
+            }
+        }, LegacyDatabase.class);
+
+        given()
+                .contentType("application/json")
+                .body("{\"username\":\"student\",\"password\":\"Workshop123!\",\"client\":\"angular-workshop\"}")
+                .when().post("/auth/login")
+                .then()
+                .statusCode(200)
+                .body("user.displayName", is("&lt;student &amp; trainer&gt;"));
+    }
+
+    @Test
     void rejectsNullRequest() {
         given()
                 .contentType("application/json")
@@ -106,6 +125,17 @@ class AuthResourceTest {
         given()
                 .contentType("application/json")
                 .body("{\"username\":\"student\",\"client\":\"angular-workshop\"}")
+                .when().post("/auth/login")
+                .then()
+                .statusCode(400)
+                .body("message", is("Password is required"));
+    }
+
+    @Test
+    void rejectsNullPassword() {
+        given()
+                .contentType("application/json")
+                .body("{\"username\":\"student\",\"password\":null,\"client\":\"angular-workshop\"}")
                 .when().post("/auth/login")
                 .then()
                 .statusCode(400)
